@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>神経衰弱・改</title>
+    <style>
+        body {
+            text-align: center;
+            background-image: url(tegakihoshi58.png);
+            background-size: cover;
+        }
+
+        #grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        #grid div {
+            background-color: #2196F3;
+            color: transparent;
+            aspect-ratio: 1;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            user-select: none;
+            transition: background-color 0.3s, transform 0.3s;
+            box-sizing: border-box;
+        }
+
+        #grid div.open {
+            background-color: #ffffff;
+            color: #333333;
+            border: 2px solid #ccc;
+            transform: scale(1.05);
+        }
+
+        #grid div:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        #event-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            font-size: 3rem;
+            font-weight: bold;
+            color: #fff;
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 20px 40px;
+            border-radius: 15px;
+            z-index: 100;
+            pointer-events: none;
+            animation: sideUp 0.4s ease-out forwards;
+        }
+
+        @keyframes sideUp {
+            0% {
+                opacity: 0;
+                transform: translate(-50%, calc(-50% + 30px)) scale(0.9);
+            }
+            100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+        }
+
+        #event-message.hidden {
+            display: none;
+        }
+
+        #modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            min-width: 280px;
+        }
+
+        .modal-content h2 {
+            margin-top: 0;
+            color: #2e7d32;
+        }
+
+        #modal-reset {
+            margin-top: 15px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>神経衰弱・改</h1>
+    <p>カードをクリックしてめくり、ペアを揃えよう！</p>
+    <p>★がでたら全カードオープン！☠️がでたら表のカード以外シャッフル！</p>
+    <p>☠️がでたら制限時間が-5秒！コンボが続くと制限時間が増えていくよ！</p>
+    <p>制限時間：<span id="time">0</span> 秒</p>
+    <p>めくった回数：<span id="count">0</span> 回</p>
+    <button id="reset">リセット</button>
+    <div id="grid">
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+        <div></div>
+    </div>
+    <div id="event-message" class="hidden"></div>
+    <div id="modal-overlay" class="hidden">
+        <div class="modal-content">
+            <h2 id="modal-title">GAME CLEAR!</h2>
+            <p>残り時間：<span id="final-time">0</span> 秒</p>
+            <p>めくった回数：<span id="final-count">0</span> 回</p>
+            <p>最高コンボ数：<span id="best-combo">0</span> 回</p>
+            <button id="modal-reset">もう一度遊ぶ</button>
+        </div>
+    </div>
+    <script>
+        const gameTime = document.getElementById('time');
+        const gameCount = document.getElementById('count');
+        const resetBtn = document.getElementById('reset');
+        const grid = document.getElementById('grid');
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modalTitle = document.getElementById('modal-title');
+        const finalTime = document.getElementById('final-time');
+        const finalCount = document.getElementById('final-count');
+        const bestCombo = document.getElementById('best-combo');
+        const modalResetBtn = document.getElementById('modal-reset');
+        const eventMessage = document.getElementById('event-message');
+
+        let firstCard = null;
+        let secondCard = null;
+        let lockBoard = false;
+        let count = 0;
+        let timer = 30;
+        let timerID = null;
+        let combo = 0;
+        let maxCombo = 0;
+        let comboTimeout;
+
+        grid.addEventListener('click', function(event) {
+            const card = event.target;
+
+            if (card === grid) {
+                return;
+            }
+            if (card.classList.contains('open')) {
+                return;
+            }
+            if (lockBoard === true) {
+                return;
+            }
+
+            startTimer();
+            card.classList.add('open');
+
+            if (card.textContent === '★') {
+                lockBoard = true;
+
+                clearTimeout(comboTimeout);
+
+                eventMessage.textContent = 'OPEN!';
+                eventMessage.classList.remove('hidden');
+
+                const closedCards = document.querySelectorAll('#grid div:not(.open)');
+
+                closedCards.forEach(function(c) {
+                    c.classList.add('open');
+                });
+
+                setTimeout(function() {
+                    closedCards.forEach(function(c) {
+                        c.classList.remove('open');
+                    });
+                    card.classList.remove('open');
+                    eventMessage.classList.add('hidden');
+                    lockBoard = false;
+                }, 1500);
+                return;
+            }
+
+            if (card.textContent === '☠️') {
+                lockBoard = true;
+
+                timer -= 5;
+
+                if (timer < 0) {
+                    timer = 0;
+                }
+
+                gameTime.textContent = timer;
+
+                if (timer <= 0) {
+                    clearInterval(timerID);
+                    lockBoard = true;
+                    modalTitle.textContent = 'GAME OVER!';
+                    finalTime.textContent = timer;
+                    finalCount.textContent = count;
+                    bestCombo.textContent = maxCombo;
+                    modalOverlay.classList.remove('hidden');
+                }
+
+                clearTimeout(comboTimeout);
+
+                eventMessage.textContent = 'SHUFFLE!';
+                eventMessage.classList.remove('hidden');
+
+                const closedCardElements = Array.from(document.querySelectorAll('#grid div:not(.open)'));
+                const values = closedCardElements.map(function(el) {
+                    return el.textContent;
+                });
+
+                for (let i = values.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [values[i], values[j]] = [values[j], values[i]];
+                }
+
+                closedCardElements.forEach(function(el, index) {
+                    el.textContent = values[index];
+                });
+
+                setTimeout(function() {
+                    card.classList.remove('open');
+                    eventMessage.classList.add('hidden');
+                    lockBoard = false;
+                }, 1000);
+
+                return;
+            }
+
+            if (firstCard === null) {
+                firstCard = card;
+            } else {
+                count++;
+                gameCount.textContent = count;
+                secondCard = card;
+
+                if (firstCard.textContent === secondCard.textContent) {
+                    firstCard = null;
+                    secondCard = null;
+                    combo++;
+
+                    if (combo > maxCombo) {
+                        maxCombo = combo;
+                    }
+
+                    timer = (timer + 1) + combo * 1;
+
+                    gameTime.textContent = timer;
+
+                    if (combo >= 2) {
+                        clearTimeout(comboTimeout);
+                        
+                        eventMessage.textContent = combo + ' COMBO!';
+                        eventMessage.classList.remove('hidden');
+                        
+                        comboTimeout = setTimeout(function() {
+                            eventMessage.classList.add('hidden');
+                        }, 1000);
+                    }
+
+                    const openedCards = document.querySelectorAll('#grid div.open');
+
+                    if (openedCards.length === 14) {
+                        clearInterval(timerID);
+                        finalTime.textContent = timer;
+                        finalCount.textContent = count;
+                        bestCombo.textContent = maxCombo;
+                        modalTitle.textContent = 'GAME CLEAR!';
+
+                        setTimeout(function() {
+                            modalOverlay.classList.remove('hidden');
+                        }, 300);
+                    }
+                } else {
+                    combo = 0;
+                    lockBoard = true;
+                    setTimeout(function() {
+                        firstCard.classList.remove('open');
+                        secondCard.classList.remove('open');
+
+                        firstCard = null;
+                        secondCard = null;
+
+                        lockBoard = false;
+                    }, 1000);
+                }
+            }
+        });
+
+        function initGame() {
+            firstCard = null;
+            secondCard = null;
+            lockBoard = false;
+            count = 0;
+            gameCount.textContent = count;
+            clearInterval(timerID);
+            timerID = null;
+            timer = 30;
+            combo = 0;
+            maxCombo = 0;
+            bestCombo.textContent = maxCombo;
+            gameTime.textContent = timer;
+            modalTitle.textContent = 'GAME CLEAR!';
+            modalOverlay.classList.add('hidden');
+
+            const numbers = ['❤', '❤', '🍀', '🍀', '💎', '💎', '🐶', '🐶', '🐈', '🐈', '🐰', '🐰', '🐷', '🐷', '★', '☠️'];
+
+            for (let i = numbers.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [numbers[i], numbers[j]] = [numbers[j], numbers[i]];
+            }
+
+            const cards = document.querySelectorAll('#grid div');
+
+            cards.forEach(function(card, index){
+                card.classList.remove('open');
+                card.textContent = numbers[index];
+            });
+        }
+
+        initGame();
+
+        resetBtn.addEventListener('click', initGame);
+
+        function startTimer() {
+            if (timerID === null) {
+                timerID = setInterval(function() {
+                    timer--;
+                    gameTime.textContent = timer;
+                    if (timer === 0) {
+                        clearInterval(timerID);
+                        lockBoard = true;
+                        modalTitle.textContent = 'GAME OVER!';
+                        finalTime.textContent = timer;
+                        finalCount.textContent = count;
+                        bestCombo.textContent = maxCombo;
+                        modalOverlay.classList.remove('hidden');
+                    }
+                }, 1000);
+            }
+        }
+
+        modalResetBtn.addEventListener('click', initGame);
+    </script>
+</body>
+</html>
